@@ -428,10 +428,9 @@ string Location::toStringMach(Loc loc, int x_size)
     return string("null");
 
   int x = getX(loc, x_size), y = getY(loc, x_size);
-  int x_print = 2 * x + y + 1, y_print = 2 * y + 1;
 
   char buf[128];
-  sprintf(buf, "(%d,%d)", x_print, y_print);
+  sprintf(buf, "(%d,%d)", x, y);
   return string(buf);
 }
 
@@ -448,13 +447,12 @@ string Location::toString(Loc loc, int x_size, int y_size)
   int y = getY(loc,x_size);
   if(x >= x_size || x < 0 || y < 0 || y >= y_size)
     return toStringMach(loc,x_size);
-  int x_print = 2 * x + y + 1, y_print = 2 * y + 1, y_size_print = y_size * 2 + 1;
 
   char buf[128];
-  if(x_print <= 24)
-    sprintf(buf, "%c%d", xChar[x_print], y_size_print - y_print);
+  if(x <= 24)
+    sprintf(buf, "%c%d", xChar[x], y + 1);
   else
-    sprintf(buf, "%c%c%d", xChar[x_print / 25 - 1], xChar[x_print % 25], y_size_print - y_print);
+    sprintf(buf, "%c%c%d", xChar[x / 25 - 1], xChar[x % 25], y + 1);
   return string(buf);
 }
 
@@ -501,12 +499,6 @@ bool Location::tryOfString(const string& str, int x_size, int y_size, Loc& resul
     bool sucY = Global::tryStringToInt(pieces[1],y);
     if(!sucX || !sucY)
       return false;
-    if(y % 2 == 0)
-      return false;
-    y = (y - 1) / 2;
-    if((x - y) % 2 == 0)
-      return false;
-    x = (x - y - 1) / 2;
     if(x < 0 || y < 0 || x >= x_size || y >= y_size)
       return false;
     result = Location::getLoc(x,y,x_size);
@@ -533,13 +525,7 @@ bool Location::tryOfString(const string& str, int x_size, int y_size, Loc& resul
     bool sucY = Global::tryStringToInt(s,y);
     if(!sucY)
       return false;
-    y = y_size * 2 + 1 - y;
-    if(y % 2 == 0)
-      return false;
-    y = (y - 1) / 2;
-    if((x - y) % 2 == 0)
-      return false;
-    x = (x - y - 1) / 2;
+    y = y - 1;
     if(x < 0 || y < 0 || x >= x_size || y >= y_size)
       return false;
     result = Location::getLoc(x,y,x_size);
