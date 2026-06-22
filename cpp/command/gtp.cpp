@@ -188,6 +188,40 @@ static bool shouldResign(
   return true;
 }
 
+//Returns true if pla is eligible to invoke Hex's swap (pie) rule on this
+//board: square, with exactly one stone on it, belonging to the opponent
+//(i.e. this is the single opening move, and pla hasn't played yet). If so,
+//sets reflectedLoc to where pla's stone would land after swapping -- the
+//opponent's stone reflected across the main diagonal.
+static bool tryGetHexSwapInfo(Player pla, const Board& board, Loc& reflectedLoc) {
+  int xSize = board.x_size;
+  int ySize = board.y_size;
+  if(xSize != ySize)
+    return false;
+
+  Player opp = getOpp(pla);
+  Loc openingLoc = Board::NULL_LOC;
+  int openingCount = 0;
+  for(int y = 0; y<ySize; y++) {
+    for(int x = 0; x<xSize; x++) {
+      Loc loc = Location::getLoc(x,y,xSize);
+      if(board.colors[loc] == pla)
+        return false; //pla already has a stone -- not a fresh opening
+      if(board.colors[loc] == opp) {
+        openingCount++;
+        openingLoc = loc;
+      }
+    }
+  }
+  if(openingCount != 1)
+    return false; //swap-pieces is only legal right after the single opening move
+
+  int ox = Location::getX(openingLoc,xSize);
+  int oy = Location::getY(openingLoc,xSize);
+  reflectedLoc = Location::getLoc(oy,ox,xSize);
+  return true;
+}
+
 struct GTPEngine {
   GTPEngine(const GTPEngine&) = delete;
   GTPEngine& operator=(const GTPEngine&) = delete;
@@ -216,6 +250,12 @@ struct GTPEngine {
   Board initialBoard;
   Player initialPla;
   vector<Move> moveHistory;
+
+  //Whether Hex's swap (pie) rule has already been used in this game.
+  //setPosition()/swapPieces() always reset moveHistory, so we can't tell
+  //"just swapped, opponent to move" apart from "fresh single-stone opening"
+  //by board content alone -- both look like one stone, no moves on record.
+  bool hexSwapUsed = false;
 
   vector<double> recentWinLossValues;
   double lastSearchFactor;
@@ -360,6 +400,7 @@ struct GTPEngine {
     initialPla = newInitialPla;
     moveHistory = newMoveHistory;
     recentWinLossValues.clear();
+    hexSwapUsed = false;
   }
 
   void clearBoard() {
@@ -397,6 +438,28 @@ struct GTPEngine {
     setPositionAndRules(pla,board,hist,board,pla,newMoveHistory);
     clearStatsForNewGame();
     return true;
+  }
+
+  //Implements Hex's swap (pie) rule over GTP via the standard "swap-pieces"
+  //token (used by HexGui/benzene/MoHex). Only legal right after the single
+  //opening stone, on a square board. Rather than mutate the board in place,
+  //we just rebuild the position with one stone: pla's stone at the
+  //reflection of the opponent's opening across the main diagonal.
+  bool swapPieces(Player pla) {
+    assert(bot->getRootHist().rules == currentRules);
+    if(hexSwapUsed)
+      return false; //the swap rule only applies once, on the opening reply
+
+    Loc reflectedLoc;
+    if(!tryGetHexSwapInfo(pla,bot->getRootBoard(),reflectedLoc))
+      return false;
+
+    vector<Move> initialStones;
+    initialStones.push_back(Move(reflectedLoc,pla));
+    bool suc = setPosition(initialStones); //resets hexSwapUsed to false
+    if(suc)
+      hexSwapUsed = true;
+    return suc;
   }
 
 
@@ -788,18 +851,53 @@ struct GTPEngine {
       PlayUtils::printGenmoveLog(cerr,bot,nnEval,moveLoc,timeTaken,perspective);
     }
 
+    //Hex's swap (pie) rule: if pla is to move with only the single opening
+    //stone on a square board, also evaluate swapping instead of playing
+    //moveLoc, and prefer whichever is better for pla. This runs a second,
+    //independent search on the swapped position (only ever triggered on
+    //this one rare move), then restores the original position so the
+    //bot ends up exactly where it started, whether we choose to swap or not.
+    bool chooseSwap = false;
+    Loc reflectedLoc = Board::NULL_LOC;
+    if(!resigned && !hexSwapUsed && tryGetHexSwapInfo(pla,bot->getRootBoard(),reflectedLoc)) {
+      Board origBoard = bot->getRootBoard();
+      BoardHistory origHist = bot->getRootHist();
 
+      Board swapBoard(origBoard.x_size,origBoard.y_size);
+      vector<Move> swapStones;
+      swapStones.push_back(Move(reflectedLoc,pla));
+      bool swapBoardOk = swapBoard.setStones(swapStones);
+      if(swapBoardOk) {
+        Player opp = getOpp(pla);
+        BoardHistory swapHist(swapBoard,opp,currentRules);
+        swapHist.setInitialTurnNumber(swapBoard.numStonesOnBoard());
+        bot->setPosition(opp,swapBoard,swapHist);
+        bot->genMoveSynchronous(opp,tc,searchFactor);
+        ReportedSearchValues swapValues = bot->getSearch()->getRootValuesRequireSuccess();
 
+        //winLossValue and swapValues.winLossValue are both fixed to White's
+        //perspective (see Search::getNodeRawNNValues), so compare directly,
+        //flipping the sense for Black.
+        chooseSwap =
+          pla == P_WHITE
+          ? swapValues.winLossValue > winLossValue
+          : swapValues.winLossValue < winLossValue;
+      }
+
+      bot->setPosition(pla,origBoard,origHist);
+    }
 
     //Actual reporting of chosen move---------------------
     if(resigned)
       response = "resign";
+    else if(chooseSwap)
+      response = "swap-pieces";
     else
       response = Location::toString(moveLoc,bot->getRootBoard());
 
     if(!resigned && moveLoc != Board::NULL_LOC && isLegal && playChosenMove) {
-      bool suc = bot->makeMove(moveLoc,pla);
-      if(suc)
+      bool suc = chooseSwap ? swapPieces(pla) : bot->makeMove(moveLoc,pla);
+      if(suc && !chooseSwap)
         moveHistory.push_back(Move(moveLoc,pla));
       assert(suc);
       (void)suc; //Avoid warning when asserts are off
@@ -1920,6 +2018,14 @@ int MainCmds::gtp(const vector<string>& args) {
       else if(!PlayerIO::tryParsePlayer(pieces[0],pla)) {
         responseIsError = true;
         response = "Could not parse color: '" + pieces[0] + "'";
+      }
+      else if(Global::toLower(pieces[1]) == "swap-pieces") {
+        bool suc = engine->swapPieces(pla);
+        if(!suc) {
+          responseIsError = true;
+          response = "cannot swap-pieces here";
+        }
+        maybeStartPondering = true;
       }
       else if(!tryParseLoc(pieces[1],engine->bot->getRootBoard(),loc)) {
         responseIsError = true;
