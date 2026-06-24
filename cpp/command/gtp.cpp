@@ -48,6 +48,9 @@ static const vector<string> knownCommands = {
   "kata-list-params",
   "kgs-rules",
 
+  //MoHex/benzene-style game parameter (e.g. "param_game allow_swap 1")
+  "param_game",
+
   "genmove",
   "genmove_debug", //Prints additional info to stderr
   "search_debug", //Prints additional info to stderr, doesn't actually make the move
@@ -257,6 +260,11 @@ struct GTPEngine {
   //by board content alone -- both look like one stone, no moves on record.
   bool hexSwapUsed = false;
 
+  //Whether Hex's swap (pie) rule is permitted at all, set via
+  //"param_game allow_swap". Disabled by default; unlike hexSwapUsed, this is
+  //engine-level config and is NOT reset by setPosition().
+  bool allowSwap = false;
+
   vector<double> recentWinLossValues;
   double lastSearchFactor;
   std::unique_ptr<PatternBonusTable> patternBonusTable;
@@ -447,6 +455,8 @@ struct GTPEngine {
   //reflection of the opponent's opening across the main diagonal.
   bool swapPieces(Player pla) {
     assert(bot->getRootHist().rules == currentRules);
+    if(!allowSwap)
+      return false; //the swap rule is disabled (see "param_game allow_swap")
     if(hexSwapUsed)
       return false; //the swap rule only applies once, on the opening reply
 
@@ -859,7 +869,7 @@ struct GTPEngine {
     //bot ends up exactly where it started, whether we choose to swap or not.
     bool chooseSwap = false;
     Loc reflectedLoc = Board::NULL_LOC;
-    if(!resigned && !hexSwapUsed && tryGetHexSwapInfo(pla,bot->getRootBoard(),reflectedLoc)) {
+    if(!resigned && allowSwap && !hexSwapUsed && tryGetHexSwapInfo(pla,bot->getRootBoard(),reflectedLoc)) {
       Board origBoard = bot->getRootBoard();
       BoardHistory origHist = bot->getRootHist();
 
@@ -1621,6 +1631,42 @@ int MainCmds::gtp(const vector<string>& args) {
         logger.write("Changed rules to " + newRules.toStringMaybeNice());
         if(!logger.isLoggingToStderr())
           cerr << "Changed rules to " + newRules.toStringMaybeNice() << endl;
+      }
+    }
+
+    //MoHex/benzene-style game parameter command, e.g. "param_game allow_swap 1"
+    else if(command == "param_game") {
+      if(pieces.size() == 0) {
+        response = "allow_swap " + string(engine->allowSwap ? "1" : "0");
+      }
+      else if(pieces.size() == 1) {
+        if(pieces[0] == "allow_swap")
+          response = engine->allowSwap ? "1" : "0";
+        else {
+          responseIsError = true;
+          response = "Unknown or invalid parameter: " + pieces[0];
+        }
+      }
+      else if(pieces.size() == 2) {
+        if(pieces[0] == "allow_swap") {
+          string value = Global::toLower(Global::trim(pieces[1]));
+          if(value == "1" || value == "true")
+            engine->allowSwap = true;
+          else if(value == "0" || value == "false")
+            engine->allowSwap = false;
+          else {
+            responseIsError = true;
+            response = "Invalid value for " + pieces[0] + ", must be 0 or 1";
+          }
+        }
+        else {
+          responseIsError = true;
+          response = "Unknown or invalid parameter: " + pieces[0];
+        }
+      }
+      else {
+        responseIsError = true;
+        response = "Expected zero, one, or two arguments for param_game but got '" + Global::concat(pieces," ") + "'";
       }
     }
 
