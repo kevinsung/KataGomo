@@ -436,23 +436,23 @@ string Location::toStringMach(Loc loc, int x_size)
 
 string Location::toString(Loc loc, int x_size, int y_size)
 {
-  if(x_size > 25 * 5 || y_size > 25 * 5)
+  if(x_size > 26 * 5 || y_size > 26 * 5)
     return toStringMach(loc,x_size);
   if(loc == Board::PASS_LOC)
     return string("pass");
   if(loc == Board::NULL_LOC)
     return string("null");
-  const char* xChar = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
+  const char* xChar = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   int x = getX(loc,x_size);
   int y = getY(loc,x_size);
   if(x >= x_size || x < 0 || y < 0 || y >= y_size)
     return toStringMach(loc,x_size);
 
   char buf[128];
-  if(x <= 24)
+  if(x <= 25)
     sprintf(buf, "%c%d", xChar[x], y + 1);
   else
-    sprintf(buf, "%c%c%d", xChar[x / 25 - 1], xChar[x % 25], y + 1);
+    sprintf(buf, "%c%c%d", xChar[x / 26 - 1], xChar[x % 26], y + 1);
   return string(buf);
 }
 
@@ -465,14 +465,10 @@ string Location::toStringMach(Loc loc, const Board& b) {
 }
 
 static bool tryParseLetterCoordinate(char c, int& x) {
-  if(c >= 'A' && c <= 'H')
+  if(c >= 'A' && c <= 'Z')
     x = c-'A';
-  else if(c >= 'a' && c <= 'h')
+  else if(c >= 'a' && c <= 'z')
     x = c-'a';
-  else if(c >= 'J' && c <= 'Z')
-    x = c-'A'-1;
-  else if(c >= 'j' && c <= 'z')
-    x = c-'a'-1;
   else
     return false;
   return true;
@@ -514,7 +510,7 @@ bool Location::tryOfString(const string& str, int x_size, int y_size, Loc& resul
       int x1;
       if(!tryParseLetterCoordinate(s[1],x1))
         return false;
-      x = (x+1) * 25 + x1;
+      x = (x+1) * 26 + x1;
       s = s.substr(2,s.length()-2);
     }
     else {
@@ -590,15 +586,15 @@ void Board::printBoard(ostream& out, const Board& board, Loc markLoc, const vect
   out << "HASH: " << board.pos_hash << "\n";
   bool showCoords = board.x_size <= 50 && board.y_size <= 50;
   if(showCoords) {
-    const char* xChar = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
+    const char* xChar = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     out << "  ";
     for(int x = 0; x < board.x_size; x++) {
-      if(x <= 24) {
+      if(x <= 25) {
         out << " ";
         out << xChar[x];
       }
       else {
-        out << "A" << xChar[x-25];
+        out << "A" << xChar[x-26];
       }
     }
     out << "\n";

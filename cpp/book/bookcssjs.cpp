@@ -215,7 +215,7 @@ function getLinkForPos(pos) {
 }
 
 let body = document.getElementsByTagName("body")[0];
-const coordChars = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
+const coordChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 let hoverShadowEltsByMove = {};
 let hoverTableEltsByMove = {};
